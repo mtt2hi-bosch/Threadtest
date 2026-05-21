@@ -1,3 +1,7 @@
+#if defined(__QNX__)
+#define QNX
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -14,12 +18,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
-#if defined(__QNXNTO__)
+#ifdef QNX
 #include <sys/neutrino.h>
+#include <sys/syspage.h>
 #endif
+
 
 #define THREADTEST_SHM_NAME "/threadtest_event_hub"
 #define THREADTEST_MAGIC 0x54545448u
@@ -131,14 +138,70 @@ static void print_usage(FILE *stream, const char *program)
             program, program, program);
 }
 
+#ifdef QNX_NOT_YET_USED    
+
+static inline void delay_sleep_ns(uint64_t nano_seconds) {
+    struct timeval tv;
+
+    if (nano_seconds != 0) {
+        tv.tv_sec = nano_seconds / 1000000000ULL;
+        tv.tv_usec = (nano_seconds % 1000000000ULL) / 1000;
+        select(1, NULL, NULL, NULL, &tv);
+    }
+}
+
+
+uint64_t clocktickspersecond = 0;
+uint64_t nanosecondspersecond =1000000000ull;
+
+static uint64_t
+clock_getrealtime_qnx(void) {
+    if (!clocktickspersecond) {
+        uint64_t _clocktickspersecond = SYSPAGE_ENTRY(qtime)->cycles_per_sec;
+        uint64_t _nanosecondspersecond = nanosecondspersecond;
+        uint64_t z = _nanosecondspersecond, n = _clocktickspersecond;
+
+        while (n != 0) {
+            uint64_t rest = z % n;
+
+            z = n;
+            n = rest;
+        }
+        nanosecondspersecond = _nanosecondspersecond / z;
+        clocktickspersecond = _clocktickspersecond / z;
+    }
+    
+    return (ClockCycles() * nanosecondspersecond) / clocktickspersecond;
+}
+
+static int
+clock_getrealtime_qnx_ts(struct timespec *tv) {
+uint64_t timeelapsed = clock_getrealtime_qnx();
+
+  tv->tv_nsec=timeelapsed % 1000000000ull;
+  tv->tv_sec=timeelapsed / 1000000000ull;
+  return 0;
+}
+
+#endif
+
 static int monotonic_now(struct timespec *ts)
 {
+#ifdef QNX_NOT_YET_USED    
+    return clock_getrealtime_qnx_ts(ts);
+#else   
     return clock_gettime(CLOCK_MONOTONIC, ts);
+#endif   
 }
 
 static int wallclock_now(clockid_t clock_id, struct timespec *ts)
 {
-    return clock_gettime(clock_id, ts);
+#ifdef QNX_NOT_YET_USED   
+    if ((clock_id == CLOCK_MONOTONIC) || (clock_id == CLOCK_REALTIME))
+        return clock_getrealtime_qnx_ts(ts);
+    else
+#endif   
+        return clock_gettime(clock_id, ts);
 }
 
 static uint64_t timespec_to_ns(const struct timespec *ts)
@@ -329,6 +392,7 @@ static void default_config(config_t *config)
         config->instance_name[0] = '\0';
     }
     config->sched_policy = SCHED_OTHER;
+    config->sched_priority=sched_get_priority_min(config->sched_policy);
     config->timeout_ns = THREADTEST_DEFAULT_TIMEOUT_NS;
     config->work_ns = THREADTEST_DEFAULT_WORK_NS;
     config->runtime_ns = THREADTEST_DEFAULT_RUNTIME_NS;
@@ -781,17 +845,15 @@ static int apply_affinity(const app_t *app)
     return 0;
 #elif defined(__QNXNTO__)
     {
-        struct _thread_runmask runmask;
-        memset(&runmask, 0, sizeof(runmask));
-        runmask.id = 0u;
+    uint64_t runmask = 0;
+
         if (app->config.cpu_index > THREADTEST_QNX_MAX_CPU_INDEX) {
             fprintf(stderr, "QNX runmask backend supports CPU indices 0-%u only.\n",
                     THREADTEST_QNX_MAX_CPU_INDEX);
             return -1;
         }
-        runmask.runmask = ((uint64_t)1) << app->config.cpu_index;
-        runmask.inherit = 0u;
-        if (ThreadCtl(_NTO_TCTL_RUNMASK, &runmask) == -1) {
+        runmask = ((uint64_t)1) << app->config.cpu_index;
+        if (ThreadCtl(_NTO_TCTL_RUNMASK, (void*)runmask) == -1) {
             fprintf(stderr, "Failed to pin worker to CPU %u: %s\n",
                     app->config.cpu_index, strerror(errno));
             return -1;
