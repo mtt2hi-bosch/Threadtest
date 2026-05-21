@@ -15,7 +15,7 @@ $(TARGET): $(SRC)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Wall -Wextra -Werror -pedantic -o $@ $(SRC) $(LDFLAGS) $(LDLIBS)
 
 test: $(TARGET)
-	sh /home/runner/work/Threadtest/Threadtest/tests/smoke.sh
+	sh tests/smoke.sh
 
 clean:
 	rm -f $(TARGET) *.o

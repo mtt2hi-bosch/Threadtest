@@ -26,6 +26,8 @@
 #define THREADTEST_MAX_EVENTS 64u
 #define THREADTEST_EVENT_NAME_MAX 64u
 #define THREADTEST_MAX_WAIT_EVENTS 16u
+#define THREADTEST_OS_NAME_MAX 128u
+#define THREADTEST_RELEASE_TEXT_MAX 90u
 
 typedef enum {
     OS_KIND_LINUX,
@@ -478,7 +480,7 @@ static int parse_args(int argc, char **argv, config_t *config)
 
 static os_kind_t detect_os(const char **os_name_out)
 {
-    static char os_name[128];
+    static char os_name[THREADTEST_OS_NAME_MAX];
     struct utsname info;
 
     if (uname(&info) != 0) {
@@ -488,28 +490,28 @@ static os_kind_t detect_os(const char **os_name_out)
     }
 
     if (strcmp(info.sysname, "Linux") == 0) {
-        snprintf(os_name, sizeof(os_name), "Linux (%.96s)", info.release);
+        snprintf(os_name, sizeof(os_name), "Linux (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
         *os_name_out = os_name;
         return OS_KIND_LINUX;
     }
 
     if (strcmp(info.sysname, "QNX") == 0) {
         if (strncmp(info.release, "7.1", 3) == 0) {
-            snprintf(os_name, sizeof(os_name), "QNX 7.1 (%.92s)", info.release);
+            snprintf(os_name, sizeof(os_name), "QNX 7.1 (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
             *os_name_out = os_name;
             return OS_KIND_QNX_71;
         }
         if (strncmp(info.release, "8.", 2) == 0) {
-            snprintf(os_name, sizeof(os_name), "QNX 8 (%.94s)", info.release);
+            snprintf(os_name, sizeof(os_name), "QNX 8 (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
             *os_name_out = os_name;
             return OS_KIND_QNX_8;
         }
-        snprintf(os_name, sizeof(os_name), "QNX (%.98s)", info.release);
+        snprintf(os_name, sizeof(os_name), "QNX (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
         *os_name_out = os_name;
         return OS_KIND_QNX_OTHER;
     }
 
-    snprintf(os_name, sizeof(os_name), "%.30s (%.90s)", info.sysname, info.release);
+    snprintf(os_name, sizeof(os_name), "%.30s (%.*s)", info.sysname, (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
     *os_name_out = os_name;
     return OS_KIND_UNKNOWN;
 }
@@ -805,7 +807,7 @@ static int apply_affinity(const app_t *app)
             fprintf(stderr, "QNX runmask backend supports CPU indices 0-63 only.\n");
             return -1;
         }
-        runmask.runmask = (uint64_t)1u << app->config.cpu_index;
+        runmask.runmask = ((uint64_t)1) << app->config.cpu_index;
         runmask.inherit = 0u;
         if (ThreadCtl(_NTO_TCTL_RUNMASK, &runmask) == -1) {
             fprintf(stderr, "Failed to pin worker to CPU %u: %s\n",

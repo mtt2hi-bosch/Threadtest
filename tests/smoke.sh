@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO=/home/runner/work/Threadtest/Threadtest
+REPO="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 BIN="$REPO/threadtest"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
