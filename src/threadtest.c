@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -32,14 +33,6 @@
 #define THREADTEST_DEFAULT_WORK_NS 100000ull
 #define THREADTEST_DEFAULT_RUNTIME_NS 1000000000ull
 #define THREADTEST_QNX_MAX_CPU_INDEX 63u
-
-typedef enum {
-    OS_KIND_LINUX,
-    OS_KIND_QNX_71,
-    OS_KIND_QNX_8,
-    OS_KIND_QNX_OTHER,
-    OS_KIND_UNKNOWN
-} os_kind_t;
 
 typedef struct {
     char name[THREADTEST_EVENT_NAME_MAX];
@@ -118,8 +111,8 @@ static void print_usage(FILE *stream, const char *program)
             "  -s, --set <name>           Event to trigger after work completes\n"
             "  -i, --trigger-start <name> Trigger one event once before the worker thread starts\n"
             "  -t, --timeout <value>      Wait timeout (us, ms, s, m; fractions allowed)\n"
-            "  -w, --work <value>         Busy-work duration (us, ms, s, m)\n"
-            "  -R, --runtime <value>      Maximum runtime (us, ms, s, m)\n"
+            "  -w, --work <value>         Busy-work duration (us, ms, s, m; fractions allowed)\n"
+            "  -R, --runtime <value>      Maximum runtime (us, ms, s, m; fractions allowed)\n"
             "  -c, --cpu <all|index>      Run on all CPUs or pin to one CPU index\n"
             "  -p, --policy <name>        Scheduler policy: other, fifo, rr\n"
             "  -r, --priority <value>     Scheduler priority\n"
@@ -233,7 +226,7 @@ static bool parse_uint_value(const char *text, unsigned int *value_out)
 
     errno = 0;
     value = strtoul(text, &endptr, 10);
-    if ((errno != 0) || (endptr == text) || (*endptr != '\0') || (value > UINT32_MAX)) {
+    if ((errno != 0) || (endptr == text) || (*endptr != '\0') || (value > UINT_MAX)) {
         return false;
     }
 
@@ -252,7 +245,7 @@ static bool parse_int_value(const char *text, int *value_out)
 
     errno = 0;
     value = strtol(text, &endptr, 10);
-    if ((errno != 0) || (endptr == text) || (*endptr != '\0') || (value < INT32_MIN) || (value > INT32_MAX)) {
+    if ((errno != 0) || (endptr == text) || (*endptr != '\0') || (value < INT_MIN) || (value > INT_MAX)) {
         return false;
     }
 
@@ -292,7 +285,7 @@ static bool parse_event_list(const char *text, config_t *config)
         return false;
     }
 
-    strcpy(buffer, text);
+    memcpy(buffer, text, strlen(text) + 1u);
     config->event_count = 0;
     token = strtok_r(buffer, ",", &saveptr);
     while (token != NULL) {
