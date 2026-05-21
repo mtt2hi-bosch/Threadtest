@@ -28,6 +28,10 @@
 #define THREADTEST_MAX_WAIT_EVENTS 16u
 #define THREADTEST_OS_NAME_MAX 128u
 #define THREADTEST_RELEASE_TEXT_MAX 90u
+#define THREADTEST_DEFAULT_TIMEOUT_NS 1000000ull
+#define THREADTEST_DEFAULT_WORK_NS 100000ull
+#define THREADTEST_DEFAULT_RUNTIME_NS 1000000000ull
+#define THREADTEST_QNX_MAX_CPU_INDEX 63u
 
 typedef enum {
     OS_KIND_LINUX,
@@ -90,7 +94,6 @@ typedef struct {
     int set_event_index;
     int trigger_start_index;
     stats_t stats;
-    os_kind_t os_kind;
     const char *os_name;
     int result_code;
 } app_t;
@@ -113,7 +116,7 @@ static void print_usage(FILE *stream, const char *program)
             "  -h, --help                 Show this help text\n"
             "  -e, --events <list>        Comma-separated events to wait on\n"
             "  -s, --set <name>           Event to trigger after work completes\n"
-            "  -i, --trigger-start <name> Trigger one event once before waiting\n"
+            "  -i, --trigger-start <name> Trigger one event once before the worker thread starts\n"
             "  -t, --timeout <value>      Wait timeout (us, ms, s, m; fractions allowed)\n"
             "  -w, --work <value>         Busy-work duration (us, ms, s, m)\n"
             "  -R, --runtime <value>      Maximum runtime (us, ms, s, m)\n"
@@ -333,9 +336,9 @@ static void default_config(config_t *config)
         config->instance_name[0] = '\0';
     }
     config->sched_policy = SCHED_OTHER;
-    config->timeout_ns = 1000000ull;
-    config->work_ns = 100000ull;
-    config->runtime_ns = 1000000000ull;
+    config->timeout_ns = THREADTEST_DEFAULT_TIMEOUT_NS;
+    config->work_ns = THREADTEST_DEFAULT_WORK_NS;
+    config->runtime_ns = THREADTEST_DEFAULT_RUNTIME_NS;
 }
 
 static const char *next_option_value(const char *option, const char *attached_value, int argc, char **argv, int *index)
@@ -478,42 +481,36 @@ static int parse_args(int argc, char **argv, config_t *config)
     return 0;
 }
 
-static os_kind_t detect_os(const char **os_name_out)
+static const char *detect_os(void)
 {
     static char os_name[THREADTEST_OS_NAME_MAX];
     struct utsname info;
 
     if (uname(&info) != 0) {
         snprintf(os_name, sizeof(os_name), "Unknown");
-        *os_name_out = os_name;
-        return OS_KIND_UNKNOWN;
+        return os_name;
     }
 
     if (strcmp(info.sysname, "Linux") == 0) {
         snprintf(os_name, sizeof(os_name), "Linux (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
-        *os_name_out = os_name;
-        return OS_KIND_LINUX;
+        return os_name;
     }
 
     if (strcmp(info.sysname, "QNX") == 0) {
         if (strncmp(info.release, "7.1", 3) == 0) {
             snprintf(os_name, sizeof(os_name), "QNX 7.1 (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
-            *os_name_out = os_name;
-            return OS_KIND_QNX_71;
+            return os_name;
         }
         if (strncmp(info.release, "8.", 2) == 0) {
             snprintf(os_name, sizeof(os_name), "QNX 8 (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
-            *os_name_out = os_name;
-            return OS_KIND_QNX_8;
+            return os_name;
         }
         snprintf(os_name, sizeof(os_name), "QNX (%.*s)", (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
-        *os_name_out = os_name;
-        return OS_KIND_QNX_OTHER;
+        return os_name;
     }
 
     snprintf(os_name, sizeof(os_name), "%.30s (%.*s)", info.sysname, (int)THREADTEST_RELEASE_TEXT_MAX, info.release);
-    *os_name_out = os_name;
-    return OS_KIND_UNKNOWN;
+    return os_name;
 }
 
 static int lock_hub(pthread_mutex_t *mutex)
@@ -803,8 +800,9 @@ static int apply_affinity(const app_t *app)
         struct _thread_runmask runmask;
         memset(&runmask, 0, sizeof(runmask));
         runmask.id = 0u;
-        if (app->config.cpu_index >= 64u) {
-            fprintf(stderr, "QNX runmask backend supports CPU indices 0-63 only.\n");
+        if (app->config.cpu_index > THREADTEST_QNX_MAX_CPU_INDEX) {
+            fprintf(stderr, "QNX runmask backend supports CPU indices 0-%u only.\n",
+                    THREADTEST_QNX_MAX_CPU_INDEX);
             return -1;
         }
         runmask.runmask = ((uint64_t)1) << app->config.cpu_index;
@@ -1002,8 +1000,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    app.os_kind = detect_os(&app.os_name);
-    (void)app.os_kind;
+    app.os_name = detect_os();
     printf("Detected OS: %s\n", app.os_name);
 
     app.hub = open_shared_hub();

@@ -34,7 +34,7 @@ Options:
   -h, --help                 Show this help text
   -e, --events <list>        Comma-separated events to wait on
   -s, --set <name>           Event to trigger after work completes
-  -i, --trigger-start <name> Trigger one event once before the worker starts waiting
+  -i, --trigger-start <name> Trigger one event once before the worker thread starts
   -t, --timeout <value>      Common wait timeout (supports us, ms, s, m; fractional values allowed)
   -w, --work <value>         Busy-work duration (supports us, ms, s, m)
   -R, --runtime <value>      Maximum runtime before stopping (supports us, ms, s, m)
