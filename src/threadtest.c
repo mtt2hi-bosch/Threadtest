@@ -506,18 +506,6 @@ static const char *detect_os(void)
     return os_name;
 }
 
-static int lock_hub(pthread_mutex_t *mutex)
-{
-    int result = pthread_mutex_lock(mutex);
-    return result;
-}
-
-static int unlock_hub(pthread_mutex_t *mutex)
-{
-    int result = pthread_mutex_unlock(mutex);
-    return result;
-}
-
 static int init_shared_hub(shared_hub_t *hub)
 {
     pthread_mutexattr_t mutex_attr;
@@ -625,7 +613,10 @@ static shared_hub_t *open_shared_hub(void)
         if ((hub->magic == THREADTEST_MAGIC) && (hub->version == THREADTEST_VERSION)) {
             return hub;
         }
-        usleep(10000);
+        {
+            const struct timespec retry_delay = {0, 10000000L};
+            nanosleep(&retry_delay, NULL);
+        }
     }
 
     fprintf(stderr, "Timed out waiting for shared hub initialization.\n");
@@ -669,7 +660,7 @@ static int resolve_events(app_t *app)
     int result;
     size_t index;
 
-    result = lock_hub(&app->hub->mutex);
+    result = pthread_mutex_lock(&app->hub->mutex);
     if (result != 0) {
         fprintf(stderr, "Failed to lock shared hub: %s\n", strerror(result));
         return -1;
@@ -678,7 +669,7 @@ static int resolve_events(app_t *app)
     for (index = 0; index < app->config.event_count; ++index) {
         int event_index = get_or_create_event_index(app->hub, app->config.event_names[index]);
         if (event_index < 0) {
-            unlock_hub(&app->hub->mutex);
+            pthread_mutex_unlock(&app->hub->mutex);
             fprintf(stderr, "Unable to allocate shared event '%s'.\n", app->config.event_names[index]);
             return -1;
         }
@@ -689,7 +680,7 @@ static int resolve_events(app_t *app)
     if (app->config.has_set_event) {
         app->set_event_index = get_or_create_event_index(app->hub, app->config.set_event);
         if (app->set_event_index < 0) {
-            unlock_hub(&app->hub->mutex);
+            pthread_mutex_unlock(&app->hub->mutex);
             fprintf(stderr, "Unable to allocate shared event '%s'.\n", app->config.set_event);
             return -1;
         }
@@ -700,7 +691,7 @@ static int resolve_events(app_t *app)
     if (app->config.has_trigger_start_event) {
         app->trigger_start_index = get_or_create_event_index(app->hub, app->config.trigger_start_event);
         if (app->trigger_start_index < 0) {
-            unlock_hub(&app->hub->mutex);
+            pthread_mutex_unlock(&app->hub->mutex);
             fprintf(stderr, "Unable to allocate shared event '%s'.\n", app->config.trigger_start_event);
             return -1;
         }
@@ -708,7 +699,7 @@ static int resolve_events(app_t *app)
         app->trigger_start_index = -1;
     }
 
-    result = unlock_hub(&app->hub->mutex);
+    result = pthread_mutex_unlock(&app->hub->mutex);
     if (result != 0) {
         fprintf(stderr, "Failed to unlock shared hub: %s\n", strerror(result));
         return -1;
@@ -731,7 +722,7 @@ static int trigger_event_locked(app_t *app, int event_index)
 
 static int trigger_event(app_t *app, int event_index)
 {
-    int result = lock_hub(&app->hub->mutex);
+    int result = pthread_mutex_lock(&app->hub->mutex);
     if (result != 0) {
         fprintf(stderr, "Failed to lock shared hub for trigger: %s\n", strerror(result));
         return -1;
@@ -740,11 +731,11 @@ static int trigger_event(app_t *app, int event_index)
     result = trigger_event_locked(app, event_index);
     if (result != 0) {
         fprintf(stderr, "Failed to signal shared event: %s\n", strerror(result));
-        unlock_hub(&app->hub->mutex);
+        pthread_mutex_unlock(&app->hub->mutex);
         return -1;
     }
 
-    result = unlock_hub(&app->hub->mutex);
+    result = pthread_mutex_unlock(&app->hub->mutex);
     if (result != 0) {
         fprintf(stderr, "Failed to unlock shared hub after trigger: %s\n", strerror(result));
         return -1;
@@ -854,6 +845,7 @@ static void busy_work(uint64_t duration_ns)
     start_ns = monotonic_now_ns();
     end_ns = start_ns + duration_ns;
     while (monotonic_now_ns() < end_ns) {
+        /* LCG parameters from Numerical Recipes keep the busy loop non-trivial. */
         sink = (sink * 1664525u) + 1013904223u;
     }
     g_work_sink = sink;
@@ -896,7 +888,7 @@ static void *worker_main(void *opaque)
         app->stats.loop_iterations++;
         app->stats.wait_calls++;
 
-        result = lock_hub(&app->hub->mutex);
+        result = pthread_mutex_lock(&app->hub->mutex);
         if (result != 0) {
             fprintf(stderr, "Failed to lock shared hub in worker: %s\n", strerror(result));
             app->result_code = 2;
@@ -910,7 +902,7 @@ static void *worker_main(void *opaque)
 
             if (!add_duration_to_now(clock_id, app->config.timeout_ns, &deadline)) {
                 fprintf(stderr, "Failed to compute wait deadline.\n");
-                unlock_hub(&app->hub->mutex);
+                pthread_mutex_unlock(&app->hub->mutex);
                 app->result_code = 2;
                 return NULL;
             }
@@ -918,7 +910,7 @@ static void *worker_main(void *opaque)
             result = pthread_cond_timedwait(&app->hub->cond, &app->hub->mutex, &deadline);
             if ((result != 0) && (result != ETIMEDOUT)) {
                 fprintf(stderr, "pthread_cond_timedwait failed: %s\n", strerror(result));
-                unlock_hub(&app->hub->mutex);
+                pthread_mutex_unlock(&app->hub->mutex);
                 app->result_code = 2;
                 return NULL;
             }
@@ -928,7 +920,7 @@ static void *worker_main(void *opaque)
             triggered = consume_triggered_events_locked(app);
         }
 
-        result = unlock_hub(&app->hub->mutex);
+        result = pthread_mutex_unlock(&app->hub->mutex);
         if (result != 0) {
             fprintf(stderr, "Failed to unlock shared hub in worker: %s\n", strerror(result));
             app->result_code = 2;
