@@ -924,7 +924,20 @@ static void *worker_main(void *opaque)
 {
     app_t *app = (app_t *)opaque;
     uint64_t start_ns = monotonic_now_ns();
+    char threadname[16]="";
 
+    memset(threadname, 0, sizeof(threadname));
+
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstringop-truncation"
+    strncpy(threadname,app->config.instance_name,sizeof(threadname)-1);
+    #pragma GCC diagnostic pop
+
+    if (pthread_setname_np(pthread_self(), threadname) != 0)
+    {
+        app->result_code = 2;
+        return NULL;
+    }
     if (apply_affinity(app) != 0) {
         app->result_code = 2;
         return NULL;
