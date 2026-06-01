@@ -138,7 +138,7 @@ static void print_usage(FILE *stream, const char *program)
             program, program, program);
 }
 
-#ifdef QNX_NOT_YET_USED    
+#ifdef QNX
 
 static inline void delay_sleep_ns(uint64_t nano_seconds) {
     struct timeval tv;
@@ -187,7 +187,7 @@ uint64_t timeelapsed = clock_getrealtime_qnx();
 
 static int monotonic_now(struct timespec *ts)
 {
-#ifdef QNX_NOT_YET_USED    
+#ifdef QNX
     return clock_getrealtime_qnx_ts(ts);
 #else   
     return clock_gettime(CLOCK_MONOTONIC, ts);
@@ -196,8 +196,8 @@ static int monotonic_now(struct timespec *ts)
 
 static int wallclock_now(clockid_t clock_id, struct timespec *ts)
 {
-#ifdef QNX_NOT_YET_USED   
-    if ((clock_id == CLOCK_MONOTONIC) || (clock_id == CLOCK_REALTIME))
+#ifdef QNX_
+    if (clock_id == CLOCK_MONOTONIC)
         return clock_getrealtime_qnx_ts(ts);
     else
 #endif   
